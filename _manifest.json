@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "id": "cc.mememeow.maibot",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "name": "MemeMeow 表情包",
   "description": "根据聊天语境搜索 MemeMeow 表情包，并加入 MaiBot 的正常回复。",
   "author": {

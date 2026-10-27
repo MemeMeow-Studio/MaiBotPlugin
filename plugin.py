@@ -232,7 +232,7 @@ class MemeMeowClient:
         return url
 
     async def download(self, candidate: Candidate) -> tuple[bytes, str]:
-        """认证下载当前候选，按响应流限制字节数并保留 PNG、JPEG 或 GIF 格式。"""
+        """认证下载当前候选，限制字节数并完整保留 PNG、JPEG、GIF、WebP 和 APNG 数据。"""
         url = self.media_url(candidate.media_url, candidate.meme_id)
         if self.config.max_edge:
             url = url.copy_set_param("max_edge", self.config.max_edge)
@@ -240,7 +240,7 @@ class MemeMeowClient:
             async with self.http.stream("GET", url) as response:
                 await self._check(response, "download")
                 content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-                if content_type not in {"image/png", "image/jpeg", "image/gif"}:
+                if content_type not in {"image/png", "image/jpeg", "image/gif", "image/webp", "image/apng"}:
                     raise self._error("unexpected_media_type", "download", content_type=content_type)
                 data = bytearray()
                 async for chunk in response.aiter_bytes():
