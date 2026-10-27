@@ -39,6 +39,26 @@ def test_sdk_configuration_and_component_registration():
     assert schema["required"] == ["meme_id"]
 
 
+@pytest.mark.parametrize("max_edge", [0, 60, 120, 240, 360, 480, 640])
+@pytest.mark.parametrize("as_text", [False, True])
+def test_webui_size_choices_preserve_integer_configuration(max_edge, as_text):
+    """实际 SDK 接受表单数值文本和 TOML 整数，配置导出仍使用整数。"""
+    plugin = create_plugin()
+    plugin.set_plugin_config({"plugin": {
+        "config_version": "0.1.0", "max_edge": str(max_edge) if as_text else max_edge,
+    }})
+    assert type(plugin.config.plugin.max_edge) is int
+    assert plugin.config.plugin.max_edge == max_edge
+    assert type(plugin.config.model_dump()["plugin"]["max_edge"]) is int
+
+
+@pytest.mark.parametrize("max_edge", [-1, 1, 300, 641, "360.5", 360.5, None, "invalid"])
+def test_unsupported_size_choices_are_rejected(max_edge):
+    """尺寸类型转换保留候选范围校验，并拒绝非整数与无效输入。"""
+    with pytest.raises(ValidationError):
+        MemeMeowSettings(max_edge=max_edge)
+
+
 @pytest.mark.parametrize("url", [
     "http://external.example", "https://example.com/path", "https://user:password@example.com",
     "https://example.com?key=value", "https://example.com#fragment", "//example.com",

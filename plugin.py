@@ -15,7 +15,7 @@ import httpx
 from cachetools import TTLCache
 from loguru import logger
 from maibot_sdk import Command, Field, MaiBotPlugin, PluginConfigBase, ReplyExtension, Tool
-from pydantic import ConfigDict, field_validator, model_validator
+from pydantic import ConfigDict, TypeAdapter, field_validator, model_validator
 
 
 class MemeMeowError(RuntimeError):
@@ -53,6 +53,12 @@ class MemeMeowSettings(PluginConfigBase):
     request_timeout: float = Field(default=20, gt=0, le=40, description="单次 HTTP 请求超时秒数")
     max_media_bytes: int = Field(default=8 * 1024 * 1024, ge=1024, le=16 * 1024 * 1024,
                                  description="单张图片允许下载的最大字节数")
+
+    @field_validator("max_edge", mode="before")
+    @classmethod
+    def validate_max_edge(cls, value: Any) -> int:
+        """将 WebUI 下拉菜单提交的数值文本转为整数，随后校验允许的图片尺寸。"""
+        return TypeAdapter(int).validate_python(value)
 
     @field_validator("api_base")
     @classmethod

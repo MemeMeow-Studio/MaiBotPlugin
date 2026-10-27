@@ -120,15 +120,15 @@ TMPDIR="$PWD/.local-test/tmp" uv run --no-sync python tests/verify_runner.py --i
 
 此入口启动真实 Host 与 Runner，通过实际 RPC 调用和 HTTP 服务完成搜索、下载、回复消息校验，并验证认证错误、聊天隔离与配置更新。测试记录中的图片应当为 400×300，验收会检查缩放后的 240×180 图片及动画帧数。该入口不会调用聊天平台发送接口。
 
-2026-10-27 已完成验证：19 项 pytest 检查和 Ruff 检查通过；MaiBot 1.3.15 的独立 Runner 成功加载插件，真实开发服务中的搜索、语境读取、PNG/JPEG/GIF 下载、GIF 两帧保留、查询配图和 Host 消息校验通过。真实 HTTP 401 原因、空结果、聊天隔离和配置更新后的候选清理也已验证。
+2026-10-27 已完成验证：41 项 pytest 检查和 Ruff 检查通过；MaiBot 1.3.15 的独立 Runner 成功加载插件，真实开发服务中的搜索、语境读取、PNG/JPEG/GIF 下载、GIF 两帧保留、查询配图和 Host 消息校验通过。真实 HTTP 401 原因、空结果、聊天隔离和配置更新后的候选清理也已验证。
 
 ## 发布
 
-当前仓库仅在本地开发。Manifest 的 `urls.repository` 预留为 `https://github.com/MemeMeow-Studio/MaiBot-MemeMeow`，发布前需要确认公开仓库地址并同步修改该字段。
+GitHub 仓库：[MemeMeow-Studio/MaiBotPlugin](https://github.com/MemeMeow-Studio/MaiBotPlugin)。Manifest 的 `urls.repository` 使用同一地址。
 
 1. 在确认的公开 GitHub 仓库中发布插件代码，根目录包含 `_manifest.json`、`plugin.py`、`LICENSE` 和本文件。
 2. 在实际聊天平台完成文字配图、主动索图、GIF 和发送回执验收，并验证使用的 Planner 能够自主选择回复扩展。
-3. 将 Manifest 与 `pyproject.toml` 的版本号设为相同的三段式版本，创建对应 Tag 和 GitHub Release，例如 `0.1.0` 与 `v0.1.0`。
+3. 将 Manifest 与 `pyproject.toml` 的版本号设为相同的三段式版本，创建对应 Tag 和 GitHub Release，例如 `0.1.1` 与 `v0.1.1`。
 4. 按照 [MaiBot 官方发布说明](https://docs.maibot.chat/plugin/submission.md) 向官方插件索引提交添加申请。审核通过后，用户可以通过 WebUI 插件市场安装。
 
 插件发布后，每次更新均需要验证对应 MaiBot 与 SDK 版本，并同步维护 Manifest 的兼容范围。实际聊天平台的发送结果与模型选择行为需要在接入环境中验证。
