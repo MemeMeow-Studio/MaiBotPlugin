@@ -1,0 +1,35 @@
+{
+  "manifest_version": 2,
+  "id": "cc.mememeow.maibot",
+  "version": "0.1.0",
+  "name": "MemeMeow 表情包",
+  "description": "根据聊天语境搜索 MemeMeow 表情包，并加入 MaiBot 的正常回复。",
+  "author": {
+    "name": "MemeMeow Studio",
+    "url": "https://mememeow.cc"
+  },
+  "license": "AGPL-3.0-or-later",
+  "urls": {
+    "repository": "https://github.com/MemeMeow-Studio/MaiBot-MemeMeow",
+    "homepage": "https://mememeow.cc"
+  },
+  "host_application": {
+    "min_version": "1.3.15",
+    "max_version": "1.3.99"
+  },
+  "sdk": {
+    "min_version": "2.16.0",
+    "max_version": "2.16.99"
+  },
+  "plugin_type": "media",
+  "dependencies": [
+    {"type": "python_package", "name": "maibot-plugin-sdk", "version_spec": "==2.16.0"},
+    {"type": "python_package", "name": "httpx", "version_spec": ">=0.27,<1"},
+    {"type": "python_package", "name": "cachetools", "version_spec": ">=5,<8"},
+    {"type": "python_package", "name": "loguru", "version_spec": ">=0.7,<1"}
+  ],
+  "capabilities": ["send.text", "send.emoji"],
+  "i18n": {
+    "default_locale": "zh-CN"
+  }
+}
