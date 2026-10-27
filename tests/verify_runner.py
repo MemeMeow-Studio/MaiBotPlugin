@@ -13,11 +13,18 @@ from PIL import Image
 
 async def verify_planner_prompt(supervisor, plugin_id, stream_id):
     """通过真实 Hook 分发与 Runner RPC，验证配置开关、聊天范围及 Host 上下文恢复。"""
-    from src.llm_models.payload_content.context_item import ContextItemMeta, ContextTextPart, UserMessageItem
+    from src.llm_models.payload_content.context_item import (
+        CONTEXT_ITEM_SCHEMA_VERSION,
+        ContextItemMeta,
+        ContextTextPart,
+        UserMessageItem,
+    )
     from src.plugin_runtime.hook_payloads import deserialize_prompt_items, serialize_prompt_items
 
     original = [UserMessageItem(meta=ContextItemMeta.create(), parts=(ContextTextPart("聊聊猫猫"),))]
-    request = {"session_id": stream_id, "items": serialize_prompt_items(original)}
+    request = {"session_id": stream_id, "items": serialize_prompt_items(original),
+               "item_schema_version": CONTEXT_ITEM_SCHEMA_VERSION, "tool_definitions": [],
+               "selected_history_count": 1, "built_message_count": 1, "selection_reason": "插件验收"}
     disabled = await supervisor.invoke_hook("maisaka.planner.before_request", **request)
     assert not disabled.errors and disabled.kwargs == request, disabled.errors
     for overrides, expected in [
@@ -49,14 +56,19 @@ async def verify(instance: Path, fixture: dict | None) -> None:
     """在专属实例目录运行实际 Host 与 Runner；有测试凭据时检查认证检索和回复附图。"""
     from src.config.config import config_manager
     from src.plugin_runtime.host.component_registry import ComponentTypes
+    from src.plugin_runtime.host.hook_spec_registry import HookSpecRegistry
     from src.plugin_runtime.host.reply_extension_schema import validate_parameters
     from src.plugin_runtime.host.reply_extensions import validate_reply_messages
     from src.plugin_runtime.host.supervisor import PluginRunnerSupervisor
 
     config_manager.initialize()
+    from src.maisaka.chat_loop_service import register_maisaka_hook_specs
+
+    hook_specs = HookSpecRegistry()
+    register_maisaka_hook_specs(hook_specs)
     supervisor = PluginRunnerSupervisor(
         plugin_dirs=[instance / "plugins"], socket_path=str(instance / "runner.sock"),
-        max_restart_attempts=0, runner_spawn_timeout_sec=30,
+        max_restart_attempts=0, runner_spawn_timeout_sec=30, hook_spec_registry=hook_specs,
     )
     plugin_id = "cc.mememeow.maibot"
     stream_id = "mememeow-plugin-e2e"

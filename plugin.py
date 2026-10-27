@@ -356,7 +356,7 @@ class MemeMeowPlugin(MaiBotPlugin):
         "maisaka.planner.before_request",
         name="proactive_meme_prompt",
         description="根据运营者设置，在 Planner 决定回复方式前提供积极使用表情包的建议",
-        error_policy=ErrorPolicy.ABORT,
+        error_policy=ErrorPolicy.LOG,
     )
     async def proactive_meme_prompt(self, *, hook_name: str = "", **kwargs: Any) -> dict:
         """在允许的会话注入系统提示，返回当前请求的独立副本并保留其余上下文。"""
