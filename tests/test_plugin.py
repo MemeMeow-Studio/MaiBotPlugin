@@ -11,6 +11,8 @@ from PIL import Image
 from pydantic import ValidationError
 
 from plugin import (
+    PROACTIVE_PROMPT,
+    PROACTIVE_PROMPT_ID,
     Candidate,
     MemeMeowClient,
     MemeMeowConfig,
@@ -166,3 +168,46 @@ async def test_reply_parameters_and_disabled_behavior():
         await plugin.reply_meme(
             phase="prepare", parameters={"query": "开心"}, text="", messages=[], session_id="chat-a",
         )
+
+
+@pytest.mark.parametrize("overrides", [
+    {"proactive_memes": False}, {"enabled": False}, {"auto_reply": False}, {"api_key": ""},
+    {"allowed_streams": ["another-chat"]},
+])
+async def test_proactive_prompt_respects_configuration_and_chat_scope(overrides):
+    """关闭任一必要设置或限制其他会话时，Planner 请求保持完整。"""
+    plugin = create_plugin()
+    plugin.set_plugin_config({"plugin": {
+        "config_version": "0.1.0", "proactive_memes": True, "api_key": "test-configuration", **overrides,
+    }})
+    request = {"session_id": "chat-a", "items": [], "tool_definitions": []}
+    baseline = deepcopy(request)
+    assert await plugin.proactive_meme_prompt(**request) == {"action": "continue"}
+    assert request == baseline
+
+
+async def test_proactive_prompt_preserves_context_and_prevents_duplicate_injection():
+    """启用建议时追加独立系统消息，原始上下文与工具说明保持完整，重复调用只注入一次。"""
+    plugin = create_plugin()
+    assert not MemeMeowSettings().proactive_memes
+    plugin.set_plugin_config({"plugin": {
+        "config_version": "0.1.0", "proactive_memes": True, "api_key": "test-configuration",
+        "allowed_streams": ["chat-a"],
+    }})
+    request = {"session_id": "chat-a", "items": [{
+        "item_type": "UserMessageItem", "meta": {"item_id": "user-question"},
+        "parts": [{"type": "text", "text": "今天聊聊猫猫"}],
+    }], "tool_definitions": [], "selected_history_count": 1}
+    baseline = deepcopy(request)
+    result = await plugin.proactive_meme_prompt(**request)
+    modified = result["modified_kwargs"]
+    assert request == baseline
+    assert modified["items"][1:] == request["items"]
+    assert {key: value for key, value in modified.items() if key != "items"} == {
+        key: value for key, value in request.items() if key != "items"
+    }
+    prompt = modified["items"][0]
+    assert prompt["item_type"] == "SystemMessageItem"
+    assert prompt["meta"]["item_id"] == PROACTIVE_PROMPT_ID
+    assert prompt["parts"] == [{"type": "text", "text": PROACTIVE_PROMPT}]
+    assert await plugin.proactive_meme_prompt(**modified) == {"action": "continue"}

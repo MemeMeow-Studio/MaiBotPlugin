@@ -1,6 +1,6 @@
 # MemeMeow for MaiBot
 
-麦麦可以根据聊天语境和准备表达的情绪，搜索 MemeMeow 表情包，加入同一次正常回复。用户也可以发送 `/meme 终于下班` 主动索取表情包。
+麦麦可以根据聊天话题和准备回复的内容，搜索 MemeMeow 表情包，加入同一次正常回复，用于接梗、调侃、回应、举例或补充表达。用户也可以发送 `/meme 终于下班` 主动索取表情包。
 
 插件使用 MaiBot 的 `ReplyExtension`。麦麦选择配图时，插件检索并认证下载图片，将表情消息交给 MaiBot 与文字一起处理；文字、引用、@ 和原有附件完整保留。是否使用表情由麦麦决定，用户无须每次发出命令。
 
@@ -19,6 +19,7 @@ enabled = true
 api_base = "https://mememeow.cc"
 api_key = "填写机器人账户的 API key"
 auto_reply = true
+proactive_memes = false
 allowed_streams = []
 search_scope = "all"
 collection_id = ""
@@ -36,6 +37,7 @@ max_media_bytes = 8388608
 | --- | --- |
 | `api_base` | 服务根地址，公网服务使用 HTTPS；本机回环地址允许 HTTP |
 | `auto_reply` | 允许麦麦在正常回复中主动搜索和附上表情包 |
+| `proactive_memes` | 积极使用表情包，默认关闭；开启后在 Planner 请求前注入使用建议，需要同时开启 `auto_reply` |
 | `allowed_streams` | 允许调用插件的聊天流 ID；空数组允许全部聊天 |
 | `search_scope` | `all` 使用账户全部可用来源；`personal` 仅使用个人图库 |
 | `collection_id` | 限定本人合集的 UUID |
@@ -48,9 +50,17 @@ max_media_bytes = 8388608
 
 `personal` 范围不能同时指定 `collection_id` 或 `subscription_id`。候选按聊天分别保存五分钟，配置更新后清除。配置和凭据均由安装实例管理，`config.toml` 已加入 Git 忽略规则。
 
+开启 `proactive_memes` 后，麦麦会收到主动根据话题、人物、动作、台词、场景、相关梗或情绪寻找表情包的建议。提示词只用于允许使用的会话，且需要插件启用并配置 API key；每次请求保留完整上下文，重复处理同一请求时不会重复添加提示。是否调用及具体使用频率由模型决定，开启后可能增加搜索请求、服务额度消耗和回复等待时间。
+
+## 麦麦如何知道插件用法
+
+插件通过 `@Tool` 声明搜索与独立发送工具，通过 `@ReplyExtension` 声明随正常回复附图的参数。MaiBot 加载这些声明后，将工具名称、说明和参数 Schema 提供给 Planner；搜索与发送工具通过工具发现机制提供，表情扩展直接出现在 `reply.plugin_options` 中。搜索返回的候选还包含 `meme_context`，供模型理解图片用途并选择。
+
+面向模型的调用说明保存在 `plugin.py` 对应组件的装饰器中。README 提供给安装者和开发者阅读；MaiBot 通过组件声明向模型介绍使用方法。开启 `proactive_memes` 后，插件通过 `maisaka.planner.before_request` Hook，额外提供积极使用表情包的系统提示，发生在模型决定是否调用表情扩展之前。
+
 ## 聊天中的使用方式
 
-正常回复时，麦麦的 `reply` 工具会获得 `cc.mememeow.maibot.meme` 参数。麦麦根据当前情绪填写查询，例如：
+正常回复时，麦麦的 `reply` 工具会获得 `cc.mememeow.maibot.meme` 参数。麦麦根据当前话题填写查询，例如：
 
 ```json
 {
@@ -120,7 +130,7 @@ TMPDIR="$PWD/.local-test/tmp" uv run --no-sync python tests/verify_runner.py --i
 
 此入口启动真实 Host 与 Runner，通过实际 RPC 调用和 HTTP 服务完成搜索、下载、回复消息校验，并验证认证错误、聊天隔离与配置更新。测试记录中的图片应当为 400×300，验收会检查缩放后的 240×180 图片及动画帧数。该入口不会调用聊天平台发送接口。
 
-2026-10-27 已完成验证：49 项 pytest 检查和 Ruff 检查通过；实际 HTTP 文件服务覆盖静态及动画 WebP、使用 `image/png` 和 `image/apng` 返回的 APNG，下载与回复附件完整保留图片数据、动画帧、时长及循环次数。MaiBot 1.3.15 的独立 Runner 成功加载插件，真实开发服务中的搜索、语境读取、PNG/JPEG/GIF 下载、GIF 两帧保留、查询配图和 Host 消息校验通过。真实 HTTP 401 原因、空结果、聊天隔离和配置更新后的候选清理也已验证。
+2026-10-27 已完成验证：55 项 pytest 检查和 Ruff 检查通过；实际 HTTP 文件服务覆盖静态及动画 WebP、使用 `image/png` 和 `image/apng` 返回的 APNG，下载与回复附件完整保留图片数据、动画帧、时长及循环次数。MaiBot 1.3.15 的独立 Runner 成功加载插件，Planner Hook 的实际分发、系统提示注入、配置开关、会话范围、重复请求及 Host 上下文恢复通过。真实开发服务中的搜索、语境读取、PNG/JPEG/GIF 下载、GIF 两帧保留、查询配图和 Host 消息校验通过。真实 HTTP 401 原因、空结果、聊天隔离和配置更新后的候选清理也已验证。
 
 ## 发布
 
@@ -128,7 +138,7 @@ GitHub 仓库：[MemeMeow-Studio/MaiBotPlugin](https://github.com/MemeMeow-Studi
 
 1. 在确认的公开 GitHub 仓库中发布插件代码，根目录包含 `_manifest.json`、`plugin.py`、`LICENSE` 和本文件。
 2. 在实际聊天平台完成文字配图、主动索图、GIF 和发送回执验收，并验证使用的 Planner 能够自主选择回复扩展。
-3. 将 Manifest 与 `pyproject.toml` 的版本号设为相同的三段式版本，创建对应 Tag 和 GitHub Release，例如 `0.1.2` 与 `v0.1.2`。
+3. 将 Manifest 与 `pyproject.toml` 的版本号设为相同的三段式版本，创建对应 Tag 和 GitHub Release，例如 `0.1.3` 与 `v0.1.3`。
 4. 按照 [MaiBot 官方发布说明](https://docs.maibot.chat/plugin/submission.md) 向官方插件索引提交添加申请。审核通过后，用户可以通过 WebUI 插件市场安装。
 
 插件发布后，每次更新均需要验证对应 MaiBot 与 SDK 版本，并同步维护 Manifest 的兼容范围。实际聊天平台的发送结果与模型选择行为需要在接入环境中验证。

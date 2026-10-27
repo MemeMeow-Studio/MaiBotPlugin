@@ -8,14 +8,28 @@ import json
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
 
 import httpx
 from cachetools import TTLCache
 from loguru import logger
-from maibot_sdk import Command, Field, MaiBotPlugin, PluginConfigBase, ReplyExtension, Tool
+from maibot_sdk import Command, Field, HookHandler, MaiBotPlugin, PluginConfigBase, ReplyExtension, Tool
+from maibot_sdk.types import ErrorPolicy
 from pydantic import ConfigDict, TypeAdapter, field_validator, model_validator
+
+PROACTIVE_PROMPT_ID = "cc.mememeow.maibot.proactive"
+PROACTIVE_PROMPT = (
+    "当你决定参与聊天时，主动使用 MemeMeow 表情包。根据当前话题、对方的话和你准备回复的内容，"
+    "积极寻找适合的表情包，用于接梗、调侃、回应、举例或补充表达，无须等待用户要求。"
+    "查询可以描述人物、动作、台词、场景、相关梗或情绪。"
+    "为文字回复配图时，在 reply 的 plugin_options 中填写 "
+    '"cc.mememeow.maibot.meme": {"query": "具体查询"}，插件会自动搜索并附上一张图片。'
+    "需要比较候选时，调用 mememeow_search，阅读 meme_context 后在同一扩展中填写选中的 meme_id；"
+    "query 与 meme_id 只填写一个。独立发送图片可以调用 mememeow_send。"
+    "注意上下文关联和最近发送的内容，减少重复；尊重用户明确提出的纯文字要求。"
+)
 
 
 class MemeMeowError(RuntimeError):
@@ -39,6 +53,10 @@ class MemeMeowSettings(PluginConfigBase):
     api_key: str = Field(default="", repr=False, description="机器人账户的 API key",
                          json_schema_extra={"input_type": "password"})
     auto_reply: bool = Field(default=True, description="允许麦麦在正常回复中自主选择表情包")
+    proactive_memes: bool = Field(
+        default=False, description="积极使用表情包：在 Planner 请求前注入使用建议；需要开启 auto_reply，"
+                                   "可能增加搜索请求、服务额度消耗和回复等待时间",
+    )
     allowed_streams: list[str] = Field(
         default_factory=list, description="允许使用的聊天流 ID；空数组允许全部",
     )
@@ -334,13 +352,44 @@ class MemeMeowPlugin(MaiBotPlugin):
             raise MemeMeowError("candidate_expired_or_unknown", "selection", message="请在当前聊天重新搜索")
         return candidate
 
+    @HookHandler(
+        "maisaka.planner.before_request",
+        name="proactive_meme_prompt",
+        description="根据运营者设置，在 Planner 决定回复方式前提供积极使用表情包的建议",
+        error_policy=ErrorPolicy.ABORT,
+    )
+    async def proactive_meme_prompt(self, *, hook_name: str = "", **kwargs: Any) -> dict:
+        """在允许的会话注入系统提示，返回当前请求的独立副本并保留其余上下文。"""
+        settings = self.config.plugin
+        stream_id = kwargs["session_id"]
+        if (not settings.enabled or not settings.auto_reply or not settings.proactive_memes
+                or not settings.api_key.strip() or not stream_id
+                or (settings.allowed_streams and stream_id not in settings.allowed_streams)):
+            return {"action": "continue"}
+        items = kwargs["items"]
+        if any(item["meta"]["item_id"] == PROACTIVE_PROMPT_ID for item in items):
+            return {"action": "continue"}
+        prompt = {
+            "item_type": "SystemMessageItem",
+            "meta": {"item_id": PROACTIVE_PROMPT_ID, "logical_turn_id": None,
+                     "timestamp": datetime.now(UTC).isoformat()},
+            "parts": [{"type": "text", "text": PROACTIVE_PROMPT}],
+        }
+        modified = deepcopy(kwargs)
+        modified["items"].insert(0, prompt)
+        logger.bind(mememeow=True).debug("阶段=Planner提示 已注入积极使用表情包建议")
+        return {"action": "continue", "modified_kwargs": modified}
+
     @Tool(
         "mememeow_search",
-        brief_description="按当前聊天语境、情绪或用户要求搜索 MemeMeow 表情包",
+        brief_description="按当前话题、人物、动作、台词、场景、相关梗或情绪搜索 MemeMeow 表情包。"
+                          "阅读候选的 meme_context 后选择图片，可在 reply 的 "
+                          "cc.mememeow.maibot.meme 扩展填写 meme_id 附图，或通过 mememeow_send 独立发送。",
         detailed_description="阅读候选的 meme_context 后选择合适图片。正常回复可用 reply 的 "
                              "cc.mememeow.maibot.meme 扩展附图；独立发图使用 mememeow_send。",
         parameters={
-            "query": {"type": "string", "description": "简短描述需要表达的情绪、人物和场景", "default": ""},
+            "query": {"type": "string", "description": "简短描述话题、人物、动作、台词、场景、梗或情绪",
+                      "default": ""},
             "tag_filter": {"type": "object", "description": "标签条件：all、any、none", "default": {},
                            "properties": {key: {"type": "array", "items": {"type": "string"}}
                                           for key in ("all", "any", "none")}, "additionalProperties": False},
@@ -360,12 +409,13 @@ class MemeMeowPlugin(MaiBotPlugin):
 
     @ReplyExtension(
         "meme",
-        description="正常聊天回复时，可根据当前语境和你准备表达的情绪，自主搜索表情包加入本次回复。"
+        description="正常聊天回复时，可根据当前话题和准备回复的内容，自主搜索表情包用于接梗、调侃、"
+                    "回应、举例或补充表达，加入本次回复。"
                     "提供 query 会自动检索并附上排名第一的图片；也可先调用 mememeow_search，"
                     "阅读图片语境后填写选中的 meme_id。仅在表情包有助于表达时使用。",
         parameters={
             "query": {"type": "string", "default": "", "maxLength": 500,
-                      "description": "本次回复需要表达的情绪、人物和场景；填写后自动搜索"},
+                      "description": "适合本次回复的话题、人物、动作、台词、场景、梗或情绪；填写后自动搜索"},
             "meme_id": {"type": "string", "default": "", "description": "当前聊天搜索结果中选中的图片 ID"},
         },
         timeout_ms=60000,
@@ -402,7 +452,9 @@ class MemeMeowPlugin(MaiBotPlugin):
         return {"messages": append_meme(messages, candidate, data)}
 
     @Tool(
-        "mememeow_send", brief_description="将当前聊天选中的 MemeMeow 表情包单独发送",
+        "mememeow_send", brief_description="使用 mememeow_search 返回的 meme_id，"
+                                           "将当前聊天选中的 MemeMeow 表情包独立发送。"
+                                           "配合文字回复时优先使用 reply 的表情扩展。",
         detailed_description="使用 mememeow_search 返回的 meme_id。配合文字回复时优先使用 reply 的表情扩展。",
         parameters={"meme_id": {"type": "string", "required": True,
                                 "description": "当前聊天搜索结果中的图片 ID"}},

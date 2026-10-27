@@ -11,6 +11,40 @@ from pathlib import Path
 from PIL import Image
 
 
+async def verify_planner_prompt(supervisor, plugin_id, stream_id):
+    """通过真实 Hook 分发与 Runner RPC，验证配置开关、聊天范围及 Host 上下文恢复。"""
+    from src.llm_models.payload_content.context_item import ContextItemMeta, ContextTextPart, UserMessageItem
+    from src.plugin_runtime.hook_payloads import deserialize_prompt_items, serialize_prompt_items
+
+    original = [UserMessageItem(meta=ContextItemMeta.create(), parts=(ContextTextPart("聊聊猫猫"),))]
+    request = {"session_id": stream_id, "items": serialize_prompt_items(original)}
+    disabled = await supervisor.invoke_hook("maisaka.planner.before_request", **request)
+    assert not disabled.errors and disabled.kwargs == request, disabled.errors
+    for overrides, expected in [
+        ({}, True), ({"allowed_streams": ["another-chat"]}, False),
+        ({"auto_reply": False}, False), ({"proactive_memes": False}, False),
+    ]:
+        config = {"plugin": {"config_version": "0.1.0", "proactive_memes": True,
+                             "api_key": "hook-verification", **overrides}}
+        assert await supervisor.notify_plugin_config_updated(
+            plugin_id, config_data=config, config_version="0.1.0",
+        )
+        dispatched = await supervisor.invoke_hook("maisaka.planner.before_request", **request)
+        assert not dispatched.errors and not dispatched.aborted, dispatched.errors
+        restored = deserialize_prompt_items(dispatched.kwargs["items"], original_items=original)
+        assert len(restored) == 1 + int(expected)
+        assert restored[-1] is original[0]
+        if expected:
+            assert restored[0].__class__.__name__ == "SystemMessageItem"
+            assert "cc.mememeow.maibot.meme" in restored[0].parts[0].text
+            repeated = await supervisor.invoke_hook("maisaka.planner.before_request", **dispatched.kwargs)
+            assert not repeated.errors and repeated.kwargs == dispatched.kwargs
+    assert await supervisor.notify_plugin_config_updated(
+        plugin_id, config_data={"plugin": {"config_version": "0.1.0"}}, config_version="0.1.0",
+    )
+    print("真实 Runner：Planner 提示注入、配置开关、聊天范围、重复请求与 Host 上下文恢复通过", flush=True)
+
+
 async def verify(instance: Path, fixture: dict | None) -> None:
     """在专属实例目录运行实际 Host 与 Runner；有测试凭据时检查认证检索和回复附图。"""
     from src.config.config import config_manager
@@ -43,6 +77,7 @@ async def verify(instance: Path, fixture: dict | None) -> None:
         )
         assert prepared.payload == {"success": True, "result": {}}, prepared.payload
         print("真实 Runner：插件加载、组件注册和 prepare 阶段通过", flush=True)
+        await verify_planner_prompt(supervisor, plugin_id, stream_id)
         if not fixture:
             return
 
